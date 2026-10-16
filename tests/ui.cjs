@@ -1,0 +1,103 @@
+const { chromium } = require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES ? process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES + '/playwright' : 'playwright');
+const fs = require('fs');
+const assert = require('node:assert/strict');
+const M = require('../assets/model.js');
+const ROOT = require('path').resolve(__dirname,'..');
+(async()=>{
+  fs.mkdirSync(ROOT+'/qa',{recursive:true});
+  const server=require('http').createServer((req,res)=>{
+    const name=req.url==='/'?'index.html':req.url.slice(1);
+    if(!/^[a-z.]+$/.test(name)){res.writeHead(404);return res.end();}
+    const file=ROOT+'/assets/'+name;
+    if(!fs.existsSync(file)){res.writeHead(404);return res.end();}
+    res.setHeader('Content-Type',name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':'text/html');res.end(fs.readFileSync(file));
+  });
+  await new Promise(resolve=>server.listen(8791,'127.0.0.1',resolve));
+  const browser = await chromium.launch({executablePath:process.env.CHROMIUM_BINARY || undefined,headless:true,args:['--no-sandbox']});
+  const context = await browser.newContext({viewport:{width:393,height:820},deviceScaleFactor:2,isMobile:true,hasTouch:true});
+  const page = await context.newPage(), errors=[], results=[];
+  page.on('pageerror',e=>errors.push(e.message));
+  const pass = message => {results.push(message);console.log('PASS '+message);};
+  const value = async()=>Number((await page.locator('#value').textContent()).replaceAll(',',''));
+  const setValue = async n => { await page.locator('#valueBtn').click(); await page.locator('#numberInput').fill(String(n)); await page.locator('#numberForm button[type=submit]').click(); };
+  const plus=page.locator('#plusBtn'), minus=page.locator('#minusBtn');
+  await page.goto('http://127.0.0.1:8791');
+  assert.equal(await value(),0);
+  await plus.tap(); await plus.tap(); await minus.tap(); assert.equal(await value(),1);
+  for(let i=0;i<9;i++)await plus.tap(); assert.equal(await value(),10);
+  pass('single taps and rapid repeated taps count exactly once');
+  const bounds=await plus.boundingBox();
+  await page.mouse.move(bounds.x+bounds.width/2,bounds.y+bounds.height/2); await page.mouse.down(); await page.waitForTimeout(850); await page.mouse.up();
+  const held=await value();assert(held>=14&&held<=17);
+  await page.waitForTimeout(220); assert.equal(await value(),held);
+  await page.locator('#undoBtn').click();assert.equal(await value(),10);
+  await page.locator('#redoBtn').click();assert.equal(await value(),held);
+  pass('long press repeats, stops on release, undoes and redoes as one action');
+  await setValue(-128);assert.equal(await value(),-128);await plus.tap();assert.equal(await value(),-127);
+  await page.locator('#valueBtn').click();await page.locator('#numberInput').fill('12.5');await page.locator('#numberForm button[type=submit]').click();assert.equal(await page.locator('#formError').textContent(),'请输入整数');assert.equal(await value(),-127);await page.locator('#closeModal').click();
+  await page.locator('#customStep').click();await page.locator('#numberInput').fill('7');await page.locator('#numberForm button[type=submit]').click();await plus.tap();assert.equal(await value(),-120);
+  await page.locator('#resetBtn').click();await page.locator('#cancelAction').click();assert.equal(await value(),-120);
+  await page.locator('#resetBtn').click();await page.locator('#confirmAction').click();assert.equal(await value(),0);await page.locator('#undoBtn').click();assert.equal(await value(),-120);
+  pass('negative values, input validation, custom step, reset confirmation and undo');
+  await page.reload();assert.equal(await value(),-120);assert.equal(await page.locator('#plusStep').textContent(),'7');
+  pass('count, per-counter step and history survive restart');
+  await page.locator('#pickerBtn').click();await page.locator('#newFromPicker').click();
+  const name='回合 <测试> & 🎲';
+  await page.locator('#nameInput').fill(name);await page.locator('#initialInput').fill('4');await page.locator('#goalInput').fill('6');await page.locator('[data-color="mint"]').click();await page.locator('#counterForm button[type=submit]').click();
+  assert.equal(await value(),4);assert.equal(await page.locator('#counterName').textContent(),name);await plus.tap();await plus.tap();assert((await page.locator('#goalArea').textContent()).includes('目标达成'));
+  await page.locator('[data-page=list]').click();assert.equal(await page.locator('.counter-item').count(),2);assert((await page.locator('#counterList').textContent()).includes(name));
+  await page.locator('.counter-more').last().click();await page.locator('#manageCopy').click();assert.equal(await page.locator('.counter-item').count(),3);
+  await page.locator('.counter-more').last().click();await page.locator('#manageDelete').click();await page.locator('#confirmAction').click();assert.equal(await page.locator('.counter-item').count(),2);
+  await page.locator('.counter-open').first().click();assert.equal(await value(),-120);
+  await page.locator('#pickerBtn').click();await page.locator('[data-pick]').last().click();assert.equal(await value(),6);
+  pass('multiple counters, isolated state, goal progress, safe names, copy, delete and switch');
+  await page.locator('[data-page=settings]').click();await page.locator('[data-theme=dark]').click();assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');
+  await page.reload();assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');
+  await page.locator('[data-page=settings]').click();await page.locator('#awakeSetting').check();await page.locator('#hapticSetting').uncheck();
+  const downloadPromise=page.waitForEvent('download');await page.locator('#exportBtn').click();const download=await downloadPromise;await download.saveAs(ROOT+'/qa/export.json');
+  const backup=JSON.parse(fs.readFileSync(ROOT+'/qa/export.json','utf8'));assert.equal(backup.counters.length,2);assert.equal(backup.settings.keepAwake,true);assert.equal(backup.settings.haptic,false);M.validate(backup);
+  await page.locator('[data-theme=light]').click();
+  await page.locator('#importFile').setInputFiles({name:'bad.json',mimeType:'application/json',buffer:Buffer.from('{}')});await page.waitForFunction(()=>document.querySelector('#toast').textContent.includes('无法导入'));assert.equal(await page.locator('#modalLayer').isVisible(),false);
+  await page.locator('#importFile').setInputFiles(ROOT+'/qa/export.json');await page.locator('#cancelAction').click();assert.equal(await page.locator('html').getAttribute('data-theme'),'light');
+  await page.locator('#importFile').setInputFiles(ROOT+'/qa/export.json');await page.locator('#confirmAction').click();assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');assert.equal(await value(),6);
+  pass('theme persistence, settings, exported JSON validation, invalid import rejection and confirmed restore');
+  await page.locator('#historyBtn').click();assert(await page.locator('.history-item').count()>0);await page.locator('#closeModal').click();
+  await page.locator('#focusBtn').click();assert(await page.locator('body').evaluate(e=>e.classList.contains('focus-mode')));assert.equal(await page.locator('.bottom-nav').isVisible(),false);
+  await page.evaluate(()=>window.handleBack());assert.equal(await page.locator('.bottom-nav').isVisible(),true);
+  await page.locator('#valueBtn').click();assert.equal(await page.evaluate(()=>window.handleBack()),true);assert.equal(await page.locator('#modalLayer').isVisible(),false);
+  pass('operation history, focus mode and Android back navigation');
+  await context.setOffline(true);await plus.tap();assert.equal(await value(),7);await minus.tap();assert.equal(await value(),6);await context.setOffline(false);
+  pass('counting remains functional with networking unavailable');
+  await setValue(123456789);
+  for (const width of [320,360,393,540,800]){
+    await page.setViewportSize({width,height:820});
+    for(const tab of ['count','list','settings']){
+      await page.locator('[data-page='+tab+']').click();
+      assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`overflow at ${width} ${tab}`);
+    }
+    await page.locator('[data-page=count]').click();
+    assert(await page.locator('#value').evaluate(e=>{const a=e.getBoundingClientRect(),b=document.querySelector('#counterCard').getBoundingClientRect();return a.left>=b.left&&a.right<=b.right;}),'large value overflows '+width);
+  }
+  pass('all screens fit 320–800px; nine-digit values remain inside the card');
+  await page.setViewportSize({width:393,height:820});await setValue(28);
+  await page.screenshot({path:ROOT+'/qa/dark.png',fullPage:true});
+  await page.locator('[data-page=settings]').click();await page.locator('[data-theme=light]').click();await page.locator('[data-page=count]').click();
+  await page.screenshot({path:ROOT+'/qa/light.png',fullPage:true});
+  await page.locator('#editCounterBtn').click();await page.screenshot({path:ROOT+'/qa/editor.png',fullPage:true});await page.locator('#closeModal').click();
+  await setValue(999999999);await plus.tap();assert.equal(await value(),999999999);await page.waitForTimeout(650);assert.equal(await value(),999999999);
+  pass('integer limit is enforced without overflow or stuck repeating');
+  assert.deepEqual(errors,[]);pass('no JavaScript runtime errors');
+  const nativeContext=await browser.newContext({viewport:{width:393,height:800}});
+  await nativeContext.addInitScript(()=>{
+    window._mock={saved:'',haptics:0,awake:false,theme:'',exported:'',imports:0};
+    window.CounterNative={load:()=>'',save:json=>{window._mock.saved=json;return true;},systemDark:()=>true,theme:value=>{window._mock.theme=value;},keepAwake:value=>{window._mock.awake=value;},haptic:()=>{window._mock.haptics++;},exportBackup:value=>{window._mock.exported=value;},importBackup:()=>{window._mock.imports++;}};
+  });
+  const nativePage=await nativeContext.newPage();await nativePage.goto('http://127.0.0.1:8791');assert.equal(await nativePage.locator('html').getAttribute('data-theme'),'dark');await nativePage.locator('#plusBtn').click();
+  let mock=await nativePage.evaluate(()=>window._mock);assert.equal(JSON.parse(mock.saved).counters[0].value,1);assert.equal(mock.haptics,1);
+  await nativePage.locator('[data-page=settings]').click();await nativePage.locator('#awakeSetting').check();await nativePage.locator('#exportBtn').click();await nativePage.locator('#importBtn').click();
+  mock=await nativePage.evaluate(()=>window._mock);assert.equal(mock.awake,true);assert.equal(mock.imports,1);M.validate(JSON.parse(mock.exported));
+  await nativePage.evaluate(()=>{window.CounterNative.save=()=>false;});await nativePage.locator('[data-page=count]').click();await nativePage.locator('#plusBtn').click();assert((await nativePage.locator('.saved').textContent()).includes('保存失败'));
+  pass('Android bridge contract: synchronous persistence, system dark mode, haptics, screen awake, backup and save failure reporting');
+  fs.writeFileSync(ROOT+'/qa/results.json',JSON.stringify({passed:true,results,errors,androidDeviceTested:false},null,2));
+  await browser.close();await new Promise(resolve=>server.close(resolve));
+})().catch(e=>{console.error(e);process.exit(1)});

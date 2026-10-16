@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>点点计数</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="model.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand"><span class="brandmark" aria-hidden="true"><i></i><i></i><i></i></span><div><strong>点点计数</strong><span class="brand-caption">让每一次，都算数。</span></div></div>
+    <button class="icon-button" id="focusBtn" aria-label="进入专注模式" title="专注模式"></button>
+  </header>
+  <main>
+    <section id="page-count" class="page">
+      <div class="section-title"><span>当前计数器</span><span class="saved"><i></i> 自动保存</span></div>
+      <div class="counter-head"><button id="pickerBtn" class="picker"><span id="counterDot" class="color-dot"></span><span id="counterName"></span><span id="pickerChevron"></span></button><button id="editCounterBtn" class="icon-button small" aria-label="编辑当前计数器"></button></div>
+      <div id="counterCard" class="counter-card">
+        <span class="eyebrow">EVERY LITTLE COUNT</span>
+        <button id="valueBtn" class="number-button" aria-label="修改当前数值"><span id="value">0</span></button>
+        <button id="editValueBtn" class="edit-hint"><span id="editValueIcon"></span> 点击数字修改</button>
+        <div id="goalArea" class="goal-area"></div>
+      </div>
+      <div class="step-row"><span>每次变化</span><div id="steps" class="step-options"><button data-step="1">1</button><button data-step="5">5</button><button data-step="10">10</button><button id="customStep">自定义</button></div></div>
+      <div class="count-controls">
+        <button id="minusBtn" class="count-button minus" aria-label="减少"><span class="big-symbol">−</span><span class="count-sub">减 <span id="minusStep">1</span></span></button>
+        <button id="plusBtn" class="count-button plus" aria-label="增加"><span class="big-symbol">+</span><span class="count-sub">加 <span id="plusStep">1</span></span></button>
+      </div>
+      <p class="press-hint">轻点一次 · 长按连续计数</p>
+      <div class="action-row"><button id="undoBtn"></button><button id="redoBtn"></button><button id="resetBtn"></button><button id="historyBtn"></button></div>
+      <div class="latest-row"><span id="latestIcon"></span><span id="latestText">准备好了，从第一次点击开始。</span></div>
+    </section>
+    <section id="page-list" class="page" hidden>
+      <div class="page-heading"><div><span class="eyebrow">YOUR COLLECTION</span><h1>我的计数器</h1><p id="listSummary"></p></div><button id="addCounterBtn" class="round-add" aria-label="新建计数器">+</button></div>
+      <div id="counterList" class="counter-list"></div>
+      <div class="tip-card"><strong>给不同的事情，留一个数字。</strong><p>游戏回合、运动次数、物品数量……<br>每个计数器都能独立保存。</p></div>
+    </section>
+    <section id="page-settings" class="page" hidden>
+      <div class="page-heading"><div><span class="eyebrow">MAKE IT YOURS</span><h1>按你的习惯来</h1><p>简单一点，顺手一点。</p></div></div>
+      <h2 class="group-label">外观</h2><div class="settings-card"><div class="setting-title">主题模式</div><div id="themeOptions" class="segmented"><button data-theme="system">跟随系统</button><button data-theme="light">浅色</button><button data-theme="dark">深色</button></div></div>
+      <h2 class="group-label">计数体验</h2><div class="settings-card"><label class="setting-row"><span><strong>触感反馈</strong><small>点击计数时轻微振动</small></span><input type="checkbox" id="hapticSetting" role="switch"></label><label class="setting-row"><span><strong>保持屏幕常亮</strong><small>使用期间不自动息屏</small></span><input type="checkbox" id="awakeSetting" role="switch"></label></div>
+      <h2 class="group-label">数据</h2><div class="settings-card"><button id="exportBtn" class="setting-action"><span><strong>导出备份</strong><small>将全部计数器与设置保存为文件</small></span><span class="trailing" id="exportIcon"></span></button><button id="importBtn" class="setting-action"><span><strong>导入备份</strong><small>从之前导出的文件恢复</small></span><span class="trailing" id="importIcon"></span></button></div>
+      <div class="about"><span class="brandmark mini" aria-hidden="true"><i></i><i></i><i></i></span><strong>点点计数 <span>1.0.0</span></strong><p>离线可用 · 无广告 · 无需登录</p><small>数据保存在本机；卸载前请先导出备份。</small></div>
+    </section>
+  </main>
+  <nav class="bottom-nav" aria-label="主导航"><button data-page="count" class="selected"><span class="nav-icon" id="navCount"></span><span>计数</span></button><button data-page="list"><span class="nav-icon" id="navList"></span><span>全部</span></button><button data-page="settings"><span class="nav-icon" id="navSettings"></span><span>设置</span></button></nav>
+</div>
+<div id="modalLayer" class="modal-layer" hidden><div class="backdrop" id="backdrop"></div><section id="modal" class="sheet" role="dialog" aria-modal="true" aria-labelledby="modalTitle" tabindex="-1"><div class="sheet-handle"></div><div class="sheet-header"><h2 id="modalTitle"></h2><button id="closeModal" class="icon-button" aria-label="关闭弹窗"></button></div><div id="modalContent"></div></section></div>
+<div id="toast" class="toast" role="status" hidden></div><div id="liveAnnounce" class="sr-only" aria-live="polite"></div>
+<input id="importFile" type="file" accept="application/json,.json" hidden>
+</body>
+</html>
